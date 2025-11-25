@@ -1,6 +1,6 @@
 import * as tf from '@tensorflow/tfjs-node';
 
-const WINDOW_SIZE = 100;  // ← трябва да е точно 100
+const WINDOW_SIZE = 200;  // ← трябва да е точно 100
 const STEP = 25;
 
 async function testCSV(filename) {

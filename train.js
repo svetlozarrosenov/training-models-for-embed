@@ -1,7 +1,7 @@
 // train_1second_windows.js  – 100% работи с tfjs-node (2025)
 import * as tf from '@tensorflow/tfjs-node';
 
-const WINDOW_SIZE = 100;
+const WINDOW_SIZE = 200;
 const STEP = 25;
 
 async function loadAndWindowCSV(filename, label) {
@@ -65,12 +65,14 @@ function createModel() {
 }
 
 async function main() {
-  const running = await loadAndWindowCSV('running.csv', 0);
-  const walking = await loadAndWindowCSV('walking.csv', 1);
+  const running = await loadAndWindowCSV('running.csv', 1);
+  const walking = await loadAndWindowCSV('walking.csv', 0);
   const resting = await loadAndWindowCSV('resting.csv', 0);
+  const shaking = await loadAndWindowCSV('shaking.csv', 0);
+  const tap = await loadAndWindowCSV('tap.csv', 0);
 
-  const xs = tf.concat([running.data, walking.data, resting.data]);
-  const ys = tf.concat([running.labels, walking.labels, resting.labels]);
+  const xs = tf.concat([running.data, walking.data, resting.data, shaking.data, tap.data]);
+  const ys = tf.concat([running.labels, walking.labels, resting.labels, shaking.labels, tap.labels]);
 
   console.log(`\nОбщо прозорци: ${xs.shape[0]}`);
   console.log(`Форма: ${xs.shape}\n`);
