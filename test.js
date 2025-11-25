@@ -1,5 +1,8 @@
 import * as tf from '@tensorflow/tfjs-node';
 
+const WINDOW_SIZE = 100;  // ← трябва да е точно 100
+const STEP = 25;
+
 async function testCSV(filename) {
   console.log(`Loading data from ${filename}...`);
   const csv = await tf.data.csv(`file://${process.cwd()}/${filename}`);
@@ -14,8 +17,13 @@ async function testCSV(filename) {
     data.push(xs);
   });
 
-  const tensor = tf.tensor2d(data);
-  console.log(`Loaded ${data.length} samples. Loading model...`);
+  const windows = [];
+  for (let i = 0; i <= data.length - WINDOW_SIZE; i += STEP) {
+    windows.push(data.slice(i, i + WINDOW_SIZE));
+  }
+  const tensor = tf.tensor3d(windows);
+
+  console.log(`Loaded ${data.length} samples → ${windows.length} windows. Loading model...`);
 
   const model = await tf.loadLayersModel('file://./my-model/model.json');
   console.log("Model loaded. Running inference...");
@@ -25,10 +33,9 @@ async function testCSV(filename) {
 
   let runningCount = 0;
   results.forEach((prob, i) => {
-    const isRunning = prob[0] > 0.7;  // you can adjust threshold: 0.6–0.8
+    const isRunning = prob[0] > 0.7;
     if (isRunning) runningCount++;
 
-    // Print first 20, every 1000th, and the last one
     if (i < 20 || i % 1000 === 0 || i === results.length - 1) {
       console.log(`Row ${i}: probability = ${(prob[0] * 100).toFixed(2)}% → ${isRunning ? "RUNNING" : "NOT running"}`);
     }
@@ -38,7 +45,7 @@ async function testCSV(filename) {
   const notRunningPercent = ((1 - runningCount / results.length) * 100).toFixed(2);
 
   console.log("\nDONE!");
-  console.log(`Total rows: ${results.length}`);
+  console.log(`Total windows: ${results.length}`);        // ← промених само текста тук
   console.log(`RUNNING: ${runningCount} (${runningPercent}%)`);
   console.log(`NOT running: ${results.length - runningCount} (${notRunningPercent}%)`);
 
@@ -49,7 +56,7 @@ async function testCSV(filename) {
   }
 }
 
-const filename = process.argv[2] || 'test_viki_running.csv';
+const filename = process.argv[2] || 'test_while_running.csv';
 testCSV(filename).catch(err => {
   console.error("Error:", err.message);
 });

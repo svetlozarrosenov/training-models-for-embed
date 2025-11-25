@@ -1,39 +1,62 @@
+// train_1second_windows.js  – 100% работи с tfjs-node (2025)
 import * as tf from '@tensorflow/tfjs-node';
 
-async function loadCSV(filename) {
-  const csv = await tf.data.csv(`file://${process.cwd()}/${filename}`);
-  const data = [];
+const WINDOW_SIZE = 100;
+const STEP = 25;
 
-  // Label is determined by filename: contains "running" → 1, otherwise → 0
-  const isRunning = filename.toLowerCase().includes('running');
+async function loadAndWindowCSV(filename, label) {
+  console.log(`Зареждане на ${filename}...`);
+  const csvDataset = tf.data.csv(`file://${process.cwd()}/${filename}`);
+  const rawData = [];
 
-  await csv.forEachAsync(row => {
-    const xs = [
-      parseFloat(row.x) / 1000.0,
+  await csvDataset.forEachAsync(row => {
+    rawData.push([
+      parseFloat(row.x) / 1000.0,   // в g
       parseFloat(row.y) / 1000.0,
       parseFloat(row.z) / 1000.0
-    ];
-    data.push(xs);
+    ]);
   });
 
-  // Create labels array filled with 1 or 0 based on filename
-  const labels = new Array(data.length).fill(isRunning ? 1 : 0);
+  const windows = [];
+  const labels = [];
 
+  for (let i = 0; i <= rawData.length - WINDOW_SIZE; i += STEP) {
+    windows.push(rawData.slice(i, i + WINDOW_SIZE));
+    labels.push(label);
+  }
+
+  console.log(`${filename} → ${windows.length} прозорци`);
   return {
-    data: tf.tensor2d(data),
+    data: tf.tensor3d(windows),
     labels: tf.tensor1d(labels, 'int32')
   };
 }
 
-async function createModel() {
+function createModel() {
   const model = tf.sequential();
-  model.add(tf.layers.dense({ inputShape: [3], units: 64, activation: 'relu' }));
-  model.add(tf.layers.dense({ units: 32, activation: 'relu' }));
+
+  model.add(tf.layers.conv1d({
+    inputShape: [WINDOW_SIZE, 3],
+    filters: 16,
+    kernelSize: 9,
+    padding: 'same',        // ← ТОВА Е КЛЮЧЪТ!
+    activation: 'relu'
+  }));
+  model.add(tf.layers.maxPooling1d({ poolSize: 2 }));
+
+  model.add(tf.layers.conv1d({
+    filters: 32,
+    kernelSize: 7,
+    padding: 'same',        // пак 'same'
+    activation: 'relu'
+  }));
+  model.add(tf.layers.globalAveragePooling1d());
+  model.add(tf.layers.dropout({ rate: 0.3 }));
   model.add(tf.layers.dense({ units: 16, activation: 'relu' }));
   model.add(tf.layers.dense({ units: 1, activation: 'sigmoid' }));
 
   model.compile({
-    optimizer: 'adam',
+    optimizer: tf.train.adam(0.001),
     loss: 'binaryCrossentropy',
     metrics: ['accuracy']
   });
@@ -42,52 +65,29 @@ async function createModel() {
 }
 
 async function main() {
-    console.log("Loading data...");
-  
-    const runningData = await loadCSV('running.csv');    // → label = 1 (тичане)
-    const walkingData = await loadCSV('walking.csv');    // → label = 0 (ходене)
-    const restingData = await loadCSV('resting.csv');    // → label = 0 (покой)
-  
-    console.log(`Running samples: ${runningData.data.shape[0]}`);
-    console.log(`Walking samples: ${walkingData.data.shape[0]}`);
-    console.log(`Resting samples: ${restingData.data.shape[0]}`);
-  
-    const xs = tf.concat([
-      runningData.data,
-      walkingData.data,
-      restingData.data
-    ]);
-  
-    const ys = tf.concat([
-      runningData.labels,
-      walkingData.labels,
-      restingData.labels
-    ]);
-  
-    const model = await createModel();
-  
-    console.log("Training model... (this may take 1–3 minutes)");
-    await model.fit(xs, ys, {
-      epochs: 60,
-      batchSize: 32,
-      validationSplit: 0.2,
-      callbacks: {
-        onEpochEnd: (epoch, logs) => {
-          if (epoch % 10 === 0 || epoch === 59) {
-            console.log(`Epoch ${epoch + 1}/60 — loss: ${logs.loss.toFixed(4)} — accuracy: ${(logs.acc * 100).toFixed(2)}% — val_accuracy: ${(logs.val_acc * 100).toFixed(2)}%`);
-          }
-        }
-      }
-    });
-  
-    await model.save('file://./my-model');
-    console.log("Model trained and saved to ./my-model/");
-    console.log("Next steps:");
-    console.log("  node convert.js   → creates .tflite");
-    console.log("  node to-header.js → creates model_data.h");
-    console.log("  Upload to Heltec → real-time running detection!");
+  const running = await loadAndWindowCSV('running.csv', 0);
+  const walking = await loadAndWindowCSV('walking.csv', 1);
+  const resting = await loadAndWindowCSV('resting.csv', 0);
+
+  const xs = tf.concat([running.data, walking.data, resting.data]);
+  const ys = tf.concat([running.labels, walking.labels, resting.labels]);
+
+  console.log(`\nОбщо прозорци: ${xs.shape[0]}`);
+  console.log(`Форма: ${xs.shape}\n`);
+
+  const model = createModel();
+  model.summary();
+
+  await model.fit(xs, ys, {
+    epochs: 40,
+    batchSize: 64,
+    validationSplit: 0.15,
+    shuffle: true,
+    callbacks: tf.callbacks.earlyStopping({ monitor: 'val_accuracy', patience: 8 })
+  });
+
+  await model.save('file://./my-model');
+  console.log('\nГОТОВО! Моделът е в ./my-model');
 }
 
-main().catch(err => {
-  console.error("Training failed:", err.message);
-});
+main().catch(console.error);
