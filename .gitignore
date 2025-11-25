@@ -1,0 +1,12 @@
+node_modules/
+*.log
+.DS_Store
+dist/
+build/
+*.tsbuildinfo
+
+*.dylib
+*.so
+*.dll
+*.pyd
+*.exe
